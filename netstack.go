@@ -13,6 +13,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
+	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 )
 
 const nicID tcpip.NICID = 1
@@ -33,9 +34,12 @@ func NewExitNetStack(tunnel *ExitTunnel, innerIP string, prefixLen int, mtu int)
 
 	s := &ExitNetStack{
 		stack: stack.New(stack.Options{
-			NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol},
-			TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol},
-			HandleLocal:        true,
+			NetworkProtocols: []stack.NetworkProtocolFactory{ipv4.NewProtocol},
+			TransportProtocols: []stack.TransportProtocolFactory{
+				tcp.NewProtocol,
+				udp.NewProtocol,
+			},
+			HandleLocal: true,
 		}),
 	}
 
@@ -92,6 +96,22 @@ func (s *ExitNetStack) DialTCP(ctx context.Context, ip net.IP, port int) (net.Co
 		Port: uint16(port),
 	}
 	return gonet.DialContextTCP(ctx, s.stack, fa, ipv4.ProtocolNumber)
+}
+
+func (s *ExitNetStack) DialUDP(ip net.IP, port int) (*gonet.UDPConn, error) {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return nil, fmt.Errorf("only IPv4 targets are supported: %s", ip)
+	}
+	if port <= 0 || port > 65535 {
+		return nil, fmt.Errorf("port out of range: %d", port)
+	}
+	fa := tcpip.FullAddress{
+		NIC:  nicID,
+		Addr: tcpip.AddrFromSlice(ip4),
+		Port: uint16(port),
+	}
+	return gonet.DialUDP(s.stack, nil, &fa, ipv4.ProtocolNumber)
 }
 
 type exitNIC struct {
