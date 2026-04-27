@@ -1,0 +1,11 @@
+{
+  "yggdrasil_config": "yggdrasil.conf",
+  "socks_listen": "127.0.0.1:1080",
+  "exit_remote_addr": "200:1111:2222:3333:4444:5555:6666:7777",
+  "exit_remote_port": 40001,
+  "exit_local_port": 40002,
+  "inner_ip": "10.66.0.10",
+  "inner_prefix_len": 24,
+  "dns_server": "1.1.1.1",
+  "mtu": 1280
+}
