@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +31,7 @@ type udpAssociation struct {
 	mu        sync.Mutex
 	clientUDP *net.UDPAddr
 	remotes   map[udpTargetKey]*udpRemote
+	dnsCache  map[string]udpDNSCacheEntry
 	closed    chan struct{}
 	once      sync.Once
 }
@@ -44,6 +46,14 @@ type udpRemote struct {
 	conn     *gonet.UDPConn
 	lastUsed time.Time
 }
+
+type udpDNSCacheEntry struct {
+	ip      net.IP
+	expires time.Time
+}
+
+const udpDNSCacheTTL = 60 * time.Second
+const udpDNSCacheMaxEntries = 1024
 
 func (s *SocksServer) handleUDPAssociate(parent context.Context, client net.Conn, _ *SocksRequest) {
 	clientTCPAddr, ok := client.RemoteAddr().(*net.TCPAddr)
@@ -82,12 +92,22 @@ func (s *SocksServer) handleUDPAssociate(parent context.Context, client net.Conn
 		clientTCP: client,
 		clientIP:  clientIP,
 		remotes:   make(map[udpTargetKey]*udpRemote),
+		dnsCache:  make(map[string]udpDNSCacheEntry),
 		closed:    make(chan struct{}),
 	}
 	log.Printf("SOCKS UDP ASSOCIATE %s via %s", client.RemoteAddr(), localAddr)
 
 	go assoc.run(parent)
-	_, _ = io.Copy(io.Discard, client)
+	copyDone := make(chan struct{})
+	go func() {
+		defer close(copyDone)
+		_, _ = io.Copy(io.Discard, client)
+	}()
+
+	select {
+	case <-parent.Done():
+	case <-copyDone:
+	}
 	assoc.close()
 }
 
@@ -116,18 +136,9 @@ func (a *udpAssociation) run(parent context.Context) {
 			continue
 		}
 
-		targetIP := net.ParseIP(dgram.Host).To4()
-		if targetIP == nil {
-			ctx, cancel := context.WithTimeout(parent, 10*time.Second)
-			ips, rErr := ResolveAOverTCP(ctx, a.server.Net, a.server.DNSServer, dgram.Host)
-			cancel()
-			if rErr != nil || len(ips) == 0 {
-				continue
-			}
-			targetIP = ips[0].To4()
-			if targetIP == nil {
-				continue
-			}
+		targetIP, rErr := a.resolveTargetIP(parent, dgram.Host)
+		if rErr != nil || targetIP == nil {
+			continue
 		}
 
 		remote := a.getOrCreateRemote(targetIP, dgram.Port)
@@ -166,6 +177,8 @@ func (a *udpAssociation) getOrCreateRemote(targetIP net.IP, port int) *udpRemote
 }
 
 func (a *udpAssociation) readRemote(remote *udpRemote) {
+	defer a.removeRemote(remote.key, remote.conn)
+
 	buf := make([]byte, 65535)
 	for {
 		n, err := remote.conn.Read(buf)
@@ -185,6 +198,62 @@ func (a *udpAssociation) readRemote(remote *udpRemote) {
 			continue
 		}
 		_, _ = a.localConn.WriteToUDP(resp, clientAddr)
+	}
+}
+
+func (a *udpAssociation) removeRemote(key udpTargetKey, conn *gonet.UDPConn) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	r := a.remotes[key]
+	if r == nil || r.conn != conn {
+		return
+	}
+	_ = r.conn.Close()
+	delete(a.remotes, key)
+}
+
+func (a *udpAssociation) resolveTargetIP(parent context.Context, host string) (net.IP, error) {
+	if ip := net.ParseIP(host).To4(); ip != nil {
+		return ip, nil
+	}
+	cacheKey := strings.ToLower(strings.TrimSpace(host))
+	a.mu.Lock()
+	now := time.Now()
+	if len(a.dnsCache) > udpDNSCacheMaxEntries {
+		a.pruneDNSCacheLocked(now)
+	}
+	if cached := a.dnsCache[cacheKey]; cached.ip != nil && now.Before(cached.expires) {
+		ip := append(net.IP(nil), cached.ip...)
+		a.mu.Unlock()
+		return ip, nil
+	}
+	a.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	ips, err := ResolveAOverTCP(ctx, a.server.Net, a.server.DNSServer, host)
+	cancel()
+	if err != nil || len(ips) == 0 {
+		return nil, err
+	}
+	ip := ips[0].To4()
+	if ip == nil {
+		return nil, errors.New("resolved non-IPv4 target")
+	}
+
+	a.mu.Lock()
+	a.dnsCache[cacheKey] = udpDNSCacheEntry{
+		ip:      append(net.IP(nil), ip...),
+		expires: time.Now().Add(udpDNSCacheTTL),
+	}
+	a.mu.Unlock()
+	return ip, nil
+}
+
+func (a *udpAssociation) pruneDNSCacheLocked(now time.Time) {
+	for host, cached := range a.dnsCache {
+		if !cached.expires.After(now) {
+			delete(a.dnsCache, host)
+		}
 	}
 }
 

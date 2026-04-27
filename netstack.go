@@ -176,9 +176,7 @@ func (e *exitNIC) WritePackets(list stack.PacketBufferList) (int, tcpip.Error) {
 	return sent, nil
 }
 
-func (e *exitNIC) WriteRawPacket(*stack.PacketBuffer) tcpip.Error {
-	panic("not implemented")
-}
+func (e *exitNIC) WriteRawPacket(pkt *stack.PacketBuffer) tcpip.Error { return e.writePacket(pkt) }
 
 func (e *exitNIC) writePacket(pkt *stack.PacketBuffer) (ret tcpip.Error) {
 	defer func() {
