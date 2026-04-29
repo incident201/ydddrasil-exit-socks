@@ -15,7 +15,7 @@ import (
 type SocksServer struct {
 	ListenAddr string
 	Net        *ExitNetStack
-	DNSServer  string
+	DNSServers []string
 }
 
 type SocksRequest struct {
@@ -72,7 +72,7 @@ func (s *SocksServer) handleConnect(parent context.Context, client net.Conn, req
 	dialCtx, cancel := context.WithTimeout(parent, 15*time.Second)
 	defer cancel()
 
-	ips, err := ResolveAOverTCP(dialCtx, s.Net, s.DNSServer, req.Host)
+	ips, err := ResolveAOverTCPWithFallback(dialCtx, s.Net, s.DNSServers, req.Host)
 	if err != nil {
 		_ = writeSocks5Reply(client, 0x04)
 		log.Printf("resolve %s: %v", req.Host, err)

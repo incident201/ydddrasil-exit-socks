@@ -29,6 +29,7 @@ type AppConfig struct {
 	InnerIP         string `json:"inner_ip"`
 	InnerPrefixLen  int    `json:"inner_prefix_len"`
 	DNSServer       string `json:"dns_server"`
+	DNSServer2      string `json:"dns_server2"`
 	MTU             int    `json:"mtu"`
 }
 
@@ -76,7 +77,7 @@ func main() {
 	server := &SocksServer{
 		ListenAddr: appCfg.SocksListen,
 		Net:        ns,
-		DNSServer:  appCfg.DNSServer,
+		DNSServers: []string{appCfg.DNSServer, appCfg.DNSServer2},
 	}
 
 	go func() {
@@ -137,6 +138,12 @@ func (c *AppConfig) Validate() error {
 	dnsIP := net.ParseIP(c.DNSServer)
 	if dnsIP == nil || dnsIP.To4() == nil {
 		return fmt.Errorf("dns_server must be IPv4")
+	}
+	if c.DNSServer2 != "" {
+		dnsIP2 := net.ParseIP(c.DNSServer2)
+		if dnsIP2 == nil || dnsIP2.To4() == nil {
+			return fmt.Errorf("dns_server2 must be IPv4")
+		}
 	}
 	if c.MTU == 0 {
 		c.MTU = 1280
