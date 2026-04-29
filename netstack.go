@@ -31,6 +31,10 @@ func NewExitNetStack(tunnel *ExitTunnel, innerIP string, prefixLen int, mtu int)
 	if mtu <= 0 {
 		mtu = 1280
 	}
+	innerMTU := mtu - ipv6HeaderLen - udpHeaderLen
+	if innerMTU < 576 {
+		return nil, fmt.Errorf("inner MTU too small: outer MTU %d gives inner MTU %d", mtu, innerMTU)
+	}
 
 	s := &ExitNetStack{
 		stack: stack.New(stack.Options{
@@ -46,9 +50,9 @@ func NewExitNetStack(tunnel *ExitTunnel, innerIP string, prefixLen int, mtu int)
 	nic := &exitNIC{
 		owner:      s,
 		tunnel:     tunnel,
-		readBuf:    make([]byte, mtu),
-		writeBuf:   make([]byte, mtu),
-		configured: mtu,
+		readBuf:    make([]byte, innerMTU),
+		writeBuf:   make([]byte, innerMTU),
+		configured: innerMTU,
 	}
 	s.nic = nic
 
@@ -149,7 +153,9 @@ func (e *exitNIC) IsAttached() bool                           { return e.dispatc
 func (e *exitNIC) MTU() uint32                                { return uint32(e.configured) }
 func (e *exitNIC) SetMTU(mtu uint32)                          { e.configured = int(mtu) }
 func (*exitNIC) Capabilities() stack.LinkEndpointCapabilities { return stack.CapabilityNone }
-func (*exitNIC) MaxHeaderLength() uint16                      { return 0 }
+func (*exitNIC) MaxHeaderLength() uint16 {
+	return header.IPv4MinimumSize
+}
 func (*exitNIC) LinkAddress() tcpip.LinkAddress               { return "" }
 func (*exitNIC) SetLinkAddress(tcpip.LinkAddress)             {}
 func (*exitNIC) Wait()                                        {}
