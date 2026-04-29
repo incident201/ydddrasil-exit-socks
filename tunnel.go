@@ -40,11 +40,12 @@ func NewExitTunnel(node *YggNode, remoteAddr string, remotePort int, localPort i
 	if localIP == nil || node.Address().To4() != nil {
 		return nil, fmt.Errorf("local yggdrasil address is not IPv6")
 	}
+	iprwcMTU := int(node.iprwc.MTU())
 	if mtu <= 0 {
-		mtu = node.iprwc.MTU()
+		mtu = iprwcMTU
 	}
-	if node.iprwc.MTU() < mtu {
-		mtu = node.iprwc.MTU()
+	if iprwcMTU < mtu {
+		mtu = iprwcMTU
 	}
 
 	return &ExitTunnel{
