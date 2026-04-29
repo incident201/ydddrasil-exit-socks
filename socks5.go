@@ -69,10 +69,10 @@ func (s *SocksServer) handleConn(parent context.Context, client net.Conn) {
 }
 
 func (s *SocksServer) handleConnect(parent context.Context, client net.Conn, req *SocksRequest) {
-	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	dialCtx, cancel := context.WithTimeout(parent, 15*time.Second)
 	defer cancel()
 
-	ips, err := ResolveAOverTCP(ctx, s.Net, s.DNSServer, req.Host)
+	ips, err := ResolveAOverTCP(dialCtx, s.Net, s.DNSServer, req.Host)
 	if err != nil {
 		_ = writeSocks5Reply(client, 0x04)
 		log.Printf("resolve %s: %v", req.Host, err)
@@ -82,7 +82,7 @@ func (s *SocksServer) handleConnect(parent context.Context, client net.Conn, req
 	var remote net.Conn
 	var lastErr error
 	for _, ip := range ips {
-		remote, lastErr = s.Net.DialTCP(ctx, ip, req.Port)
+		remote, lastErr = s.Net.DialTCP(dialCtx, ip, req.Port)
 		if lastErr == nil {
 			break
 		}
