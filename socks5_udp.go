@@ -230,7 +230,7 @@ func (a *udpAssociation) resolveTargetIP(parent context.Context, host string) (n
 	a.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
-	ips, err := ResolveAOverTCP(ctx, a.server.Net, a.server.DNSServer, host)
+	ips, err := ResolveAOverTCPWithFallback(ctx, a.server.Net, a.server.DNSServers, host)
 	cancel()
 	if err != nil || len(ips) == 0 {
 		return nil, err

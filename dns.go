@@ -67,6 +67,28 @@ func ResolveAOverTCP(ctx context.Context, ns *ExitNetStack, dnsServer string, ho
 	return ips, nil
 }
 
+func ResolveAOverTCPWithFallback(ctx context.Context, ns *ExitNetStack, dnsServers []string, host string) ([]net.IP, error) {
+	if len(dnsServers) == 0 {
+		return nil, errors.New("no DNS servers configured")
+	}
+
+	var lastErr error
+	for _, dnsServer := range dnsServers {
+		dnsServer = strings.TrimSpace(dnsServer)
+		if dnsServer == "" {
+			continue
+		}
+		ips, err := ResolveAOverTCP(ctx, ns, dnsServer, host)
+		if err == nil {
+			return ips, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, errors.New("no valid DNS servers configured")
+}
 func buildDNSQueryA(host string) ([]byte, uint16, error) {
 	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
 	if host == "" {
